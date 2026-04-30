@@ -170,6 +170,29 @@ sed -i "${LINE_NO}d" "$QUEUE"
 
 log "done: $PROJECT_NAME rc=$RC"
 
+# Self-loop: if queue still has work AND we're still in the away-hours window
+# AND the budget gate still passes, run the next task immediately. flock holds
+# the lock for the whole loop so timer firings are no-ops while we're busy.
+SELF_LOOP_GUARD="${SELF_LOOP_GUARD:-0}"
+if [ "$SELF_LOOP_GUARD" -lt 20 ] && grep -qv '^\s*\(#\|$\)' "$QUEUE" 2>/dev/null; then
+    H=$(date +%H | sed 's/^0//')
+    in_window=1
+    if [ "${FORCE:-0}" != "1" ] && [ "$AWAY_HOUR_START" != "$AWAY_HOUR_END" ]; then
+        if [ "$AWAY_HOUR_START" -lt "$AWAY_HOUR_END" ]; then
+            [ "$H" -ge "$AWAY_HOUR_START" ] && [ "$H" -lt "$AWAY_HOUR_END" ] || in_window=0
+        else
+            [ "$H" -ge "$AWAY_HOUR_START" ] || [ "$H" -lt "$AWAY_HOUR_END" ] || in_window=0
+        fi
+    fi
+    if [ "$in_window" = "1" ] && "$ROOT/bin/budget.sh" check "$WEEKLY_TOKEN_CAP_M" >/dev/null; then
+        log "self-loop: queue has work and window open — chaining next task"
+        export SELF_LOOP_GUARD=$((SELF_LOOP_GUARD + 1))
+        # Re-exec, releasing flock first so the new instance can acquire it
+        flock -u 9
+        exec "$0"
+    fi
+fi
+
 # Notify on completion. Failures + draft PRs both warrant a phone ping.
 PR_URL=$(grep -oE 'https://github.com/[^ ]*pull/[0-9]+' "$RUN_LOG" 2>/dev/null | head -1 || true)
 if [ "$RC" = "0" ] && [ -n "$PR_URL" ]; then
