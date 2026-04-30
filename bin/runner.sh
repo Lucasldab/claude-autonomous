@@ -101,7 +101,7 @@ run_one_task() {
     resume_hint=""
     [ -f "$state_file" ] && resume_hint=$'\n\nPrior session state (resume from here):\n'"$(cat "$state_file")"
 
-    full_prompt="You are running fully autonomously without a human. Follow the auto-checkpoint skill rules.
+    full_prompt="You are running fully autonomously without a human supervising. The only valid stop conditions are: (1) you have completed THIS task and opened the PR, (2) you have hit a real limit and must checkpoint (context >=75%, wall-clock >=3.5h, repeated rate-limit errors, or three consecutive tool failures on the same target). 'I am uncertain' and 'Lucas should decide X' are NOT stop conditions — make the call yourself, document the choice in the PR description, and proceed. The runner will queue the next task automatically; you do not need to ration effort.
 
 Task: $prompt_part
 
@@ -112,9 +112,10 @@ Hard rules:
 - Push allowed: $ALLOW_PUSH
 - PR allowed: $ALLOW_PR
 - Max turns: $MAX_TURNS
-- When you sense limits closing in (context >75%, long wall-clock, repeated failures), invoke the auto-checkpoint skill, write resume notes to $state_file, commit, and exit cleanly.
-- Do not read .env / secrets / credentials. Use placeholder values and document what env vars are needed.
-- Use the spc command to create a new GitHub repo if the task requires one.$resume_hint"
+- Do not read .env / secrets / credentials. Use placeholder values; document required env vars in the PR.
+- Use spc <name> (or spc -p <name> for private) if the task requires creating a new GitHub repo.
+- If you genuinely cannot proceed without a destructive action (force push, rewrite history, delete data), document that as a blocker in the PR body and finish whatever non-destructive work you can. Do not abandon the task — partial work in a draft PR is preferable to no PR.
+- Auto-checkpoint skill: invoke ONLY on real limit conditions above, never on 'task feels done' or 'I'm unsure'.$resume_hint"
 
     start_ts=$(date +%s)
 
