@@ -7,7 +7,6 @@
 # - Open a draft PR; do not merge
 # - If you cannot proceed without making destructive changes, write a state note explaining and exit cleanly
 
-mrm|Rust TUI manhwa manager. Read crates/, scraper/, Cargo.toml. Write SCAN.md at repo root listing: (a) modules and their responsibilities, (b) any TODO/FIXME comments with file:line, (c) one risky area (scraper rate-limiting? notification backoff? state file corruption on crash?) with suggested test. Open draft PR with SCAN.md only.
 mtgspoilers|Rust TUI MTG spoilers tool. Read src/ and migrations/. Write SCAN.md: (a) modules + responsibilities, (b) the 4-tier confidence system flow with file:line, (c) one edge case in dedup (image hash collisions? near-duplicates? source disagreements?) with proposed test. Open draft PR with SCAN.md only.
 noguisteam|Rust TUI Steam manager via SteamCMD. Read src/. Write SCAN.md: (a) modules + responsibilities, (b) shell injection risk surface around SteamCMD invocation with file:line, (c) one concrete sanitization-test you would add. Open draft PR with SCAN.md only.
 rkanban|Rust TUI Kanban. Read src/ and work.json. Write SCAN.md: (a) modules + responsibilities, (b) data-loss risk on concurrent edits or crash mid-write with file:line, (c) one atomic-write or schema-version test you would add. Open draft PR with SCAN.md only.
