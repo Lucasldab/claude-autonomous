@@ -7,7 +7,6 @@
 # - Open a draft PR; do not merge
 # - If you cannot proceed without making destructive changes, write a state note explaining and exit cleanly
 
-nocturne|Read the pin-cycle script and identify race conditions when Syncthing is mid-sync (memory note flags phone auto-pull as flaky, manual rescan workaround). Write RACES.md at repo root: each race with file:line, repro steps, suggested guard (lock file? mtime check? .syncthing.tmp marker?). Open a draft PR with RACES.md only.
 smartAchievements|There are uncommitted changes in working tree — DO NOT touch them. Read .planning/ to understand current milestone, then write PLANNING-AUDIT.md summarizing: (a) which phase is in flight, (b) what is blocking the dirty changes from committing, (c) next concrete step. Open draft PR with PLANNING-AUDIT.md only. If unsure about the dirty changes' intent, document that as a blocker for Lucas in the PR description.
 mineltui|There are uncommitted changes in working tree — DO NOT touch them. Read .planning/ to understand current milestone. Write PLANNING-AUDIT.md: phase status + blocker for dirty changes + next step. Open draft PR with PLANNING-AUDIT.md only.
 icloud-tools|Audit lsb_crypt.py (two-factor PNG-LSB + password encryption). Write SECURITY-NOTES.md: any crypto smells (constant-time compare, IV reuse, password→key derivation choice, error-message leaks), severity per finding, no fixes — just findings. Open draft PR with SECURITY-NOTES.md.

@@ -1,10 +1,10 @@
 # Autonomous state — nocturne
 
-- Last checkpoint: 2026-04-30T05:16:47Z
-- Reason: stop-hook
-- Session ID: 4006d7c2-842b-457d-8a43-f92701d575ee
+- Last checkpoint: 2026-04-30T05:51:06Z
+- Reason: runner-end-rc-0
+- Session ID: manual-1777528266
 - Branch: autonomous/wip-20260430-0216
-- HEAD: 88cb773
+- HEAD: d937dc6
 
 ## Resume notes
 
