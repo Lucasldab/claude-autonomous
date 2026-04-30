@@ -161,3 +161,36 @@ fi
 sed -i "${LINE_NO}d" "$QUEUE"
 
 log "done: $PROJECT_NAME rc=$RC"
+
+# Publish per-run summary to the claude-autonomous repo so remote auditors can see it
+SUMMARY_DIR="$ROOT/runs"
+mkdir -p "$SUMMARY_DIR"
+SUMMARY_FILE="$SUMMARY_DIR/$RUN_ID.md"
+{
+    echo "# Run $RUN_ID"
+    echo
+    echo "- Project: \`$PROJECT_DIR\`"
+    echo "- Task: $PROMPT_PART"
+    echo "- Exit code: $RC"
+    echo "- Elapsed: ${ELAPSED}s (cap ${MAX_SESSION_SECONDS}s)"
+    echo "- Tokens (estimated): ${TOKENS:-unknown}"
+    echo "- Branch at end: $(cd "$PROJECT_DIR" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo n/a)"
+    echo "- HEAD: $(cd "$PROJECT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo n/a)"
+    echo "- Remote pushed: $(grep -q "pushed:" "$RUN_LOG" 2>/dev/null && echo yes || echo no)"
+    echo "- Hit timeout: $([ "$ELAPSED" -ge "$MAX_SESSION_SECONDS" ] && echo yes || echo no)"
+    echo "- Stop reason hint (last 5 log lines):"
+    echo
+    echo '```'
+    tail -5 "$RUN_LOG" 2>/dev/null | sed 's/^/  /'
+    echo '```'
+} > "$SUMMARY_FILE"
+
+# Commit and push the summary + state file (best-effort, non-blocking)
+(
+    cd "$ROOT"
+    git add "runs/$RUN_ID.md" "state/${PROJECT_NAME}.md" 2>/dev/null || true
+    if ! git diff --cached --quiet 2>/dev/null; then
+        git commit -q -m "run: $RUN_ID rc=$RC ($PROJECT_NAME)" 2>/dev/null || true
+        git push -q 2>/dev/null || true
+    fi
+) || true

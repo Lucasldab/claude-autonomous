@@ -1,5 +1,3 @@
 logs/*.log
-state/budget.log
 state/runner.lock
-tasks/done.log
-tasks/failed.log
+# budget.log, done.log, failed.log are tracked so remote auditors can see them
