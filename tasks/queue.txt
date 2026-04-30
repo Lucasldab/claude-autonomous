@@ -7,4 +7,3 @@
 # - Open a draft PR; do not merge
 # - If you cannot proceed without making destructive changes, write a state note explaining and exit cleanly
 
-enderite|Add enderite world generation. Configured features + placed features for END_ENDERITE_ORE (End outer islands, rare). Optional: small chance in End city loot tables. Datapack JSON under data/enderite/worldgen/. Verify gradle build passes. Open draft PR titled 'feat: enderite worldgen + loot integration'.

@@ -1,0 +1,1 @@
+2026-04-30T18:49:08Z	enderite|Add enderite world generation. Configured features + placed features for END_ENDERITE_ORE (End outer islands, rare). Optional: small chance in End city loot tables. Datapack JSON under data/enderite/worldgen/. Verify gradle build passes. Open draft PR titled 'feat: enderite worldgen + loot integration'.	rc=1	run=20260430-183802-enderite
