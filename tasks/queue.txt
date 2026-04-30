@@ -1,0 +1,11 @@
+# Autonomous task queue. One task per non-comment line.
+# Format: <project-dir>|<task-prompt>
+# project-dir is relative to /home/projects or absolute.
+# Lines starting with # or blank are ignored.
+# Runner picks the OLDEST unworked task (top of file), moves it to tasks/done.log on success
+# or tasks/failed.log on failure.
+#
+# Examples (uncomment to enable):
+# readingViewer|Audit pan-clamping logic in src/. Add unit tests for edge cases. Open PR.
+# nocturne|Review pin-cycle script for race conditions when Syncthing is mid-sync.
+# rfinances|Run test suite, fix any failing tests, commit per-fix.

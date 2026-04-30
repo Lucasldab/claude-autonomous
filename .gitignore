@@ -1,0 +1,5 @@
+logs/*.log
+state/budget.log
+state/runner.lock
+tasks/done.log
+tasks/failed.log
