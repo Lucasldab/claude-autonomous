@@ -26,14 +26,40 @@ handle_qa() {
     log "Q&A: $question"
     ack "Q&A received" "${question:0:120}"
 
+    # Inject context so questions like "how many tasks" or "what's in the queue" actually work.
+    local queue_count done_count failed_count current_task active_branch
+    queue_count=$(grep -cv '^\s*\(#\|$\)' "$ROOT/tasks/queue.txt" 2>/dev/null || echo 0)
+    done_count=$(wc -l < "$ROOT/tasks/done.log" 2>/dev/null || echo 0)
+    failed_count=$(wc -l < "$ROOT/tasks/failed.log" 2>/dev/null || echo 0)
+    current_task=$(grep -v '^\s*\(#\|$\)' "$ROOT/tasks/queue.txt" 2>/dev/null | head -1 | cut -d'|' -f1)
+    active_branch=$(systemctl --user is-active claude-autonomous.service 2>/dev/null)
+
+    local context
+    context="You are answering Lucas's question over ntfy push notification. Reply in <=3500 chars, plain text, no markdown headers. Be terse — fragments OK. Caveman style if it saves chars.
+
+Live system snapshot:
+- Autonomous daemon: $active_branch
+- Queue: $queue_count tasks remaining
+- Completed: $done_count, Failed: $failed_count
+- Currently running: ${current_task:-idle}
+- Queue file: $ROOT/tasks/queue.txt
+- Done log: $ROOT/tasks/done.log
+- Repo: /home/projects/claude-autonomous (github.com/Lucasldab/claude-autonomous)
+- Other projects live under /home/projects/
+
+If the question asks about queue/tasks/runs/state, read the files above. Otherwise answer normally.
+
+Question: $question"
+
     local answer rc
-    answer=$(timeout 600 claude \
+    answer=$(timeout 180 claude \
         --print \
         --dangerously-skip-permissions \
         --max-turns "${QA_MAX_TURNS:-5}" \
         --model "$CLAUDE_MODEL" \
         --output-format text \
-        "$question" 2>&1)
+        --add-dir "$ROOT" \
+        "$context" </dev/null 2>&1)
     rc=$?
 
     # Truncate to fit ntfy body
