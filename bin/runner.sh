@@ -1,239 +1,240 @@
 #!/usr/bin/env bash
-# Autonomous runner. Picks the next queued task and runs claude headless on it.
-# Designed to be invoked by systemd timer.
+# Autonomous runner daemon. Runs as a long-lived systemd service:
+# Type=simple, no timer needed. Loops forever, processes one queued task at
+# a time. Single-instance is enforced by systemd, so no flock is needed.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 QUEUE="$ROOT/tasks/queue.txt"
-DONE="$ROOT/tasks/done.log"
-FAILED="$ROOT/tasks/failed.log"
-LOCK="$ROOT/state/runner.lock"
+DONE_LOG="$ROOT/tasks/done.log"
+FAILED_LOG="$ROOT/tasks/failed.log"
 LOG_DIR="$ROOT/logs"
 
-mkdir -p "$ROOT/tasks" "$ROOT/state" "$LOG_DIR"
-touch "$DONE" "$FAILED"
+mkdir -p "$ROOT/tasks" "$ROOT/state" "$LOG_DIR" "$ROOT/runs"
+touch "$DONE_LOG" "$FAILED_LOG"
 
 # shellcheck disable=SC1091
 source "$ROOT/config/limits.conf"
 
-log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*" | tee -a "$LOG_DIR/runner.log"; }
+log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*" | tee -a "$LOG_DIR/runner.log"; }
 
-# Single-instance lock
-exec 9>"$LOCK"
-if ! flock -n 9; then
-    log "another runner is active — exiting"
-    exit 0
-fi
+# ---------- helpers ----------
 
-# Away-hours gate (skip if FORCE=1)
-if [ "${FORCE:-0}" != "1" ] && [ "$AWAY_HOUR_START" != "$AWAY_HOUR_END" ]; then
-    H=$(date +%H | sed 's/^0//')
+in_away_window() {
+    [ "${FORCE:-0}" = "1" ] && return 0
+    [ "$AWAY_HOUR_START" = "$AWAY_HOUR_END" ] && return 0
+    local h
+    h=$(date +%H | sed 's/^0//')
     if [ "$AWAY_HOUR_START" -lt "$AWAY_HOUR_END" ]; then
-        in_window=$([ "$H" -ge "$AWAY_HOUR_START" ] && [ "$H" -lt "$AWAY_HOUR_END" ] && echo 1 || echo 0)
+        [ "$h" -ge "$AWAY_HOUR_START" ] && [ "$h" -lt "$AWAY_HOUR_END" ]
     else
-        in_window=$([ "$H" -ge "$AWAY_HOUR_START" ] || [ "$H" -lt "$AWAY_HOUR_END" ] && echo 1 || echo 0)
+        [ "$h" -ge "$AWAY_HOUR_START" ] || [ "$h" -lt "$AWAY_HOUR_END" ]
     fi
-    if [ "$in_window" != "1" ]; then
-        log "outside away-hours window ($AWAY_HOUR_START–$AWAY_HOUR_END) — skipping"
-        exit 0
+}
+
+queue_has_work() {
+    grep -qv '^\s*\(#\|$\)' "$QUEUE" 2>/dev/null
+}
+
+budget_ok() {
+    "$ROOT/bin/budget.sh" check "$WEEKLY_TOKEN_CAP_M" >/dev/null
+}
+
+# Seconds to sleep before next poll.
+# Outside window: sleep until window opens (or 5min, whichever sooner).
+# Window open but queue empty / budget exhausted: 60s.
+sleep_duration() {
+    if ! in_away_window; then
+        echo 300
+    else
+        echo 60
     fi
-fi
+}
 
-# Weekly budget gate
-if ! "$ROOT/bin/budget.sh" check "$WEEKLY_TOKEN_CAP_M" >/dev/null; then
-    log "weekly token cap reached — skipping"
-    exit 0
-fi
+# ---------- task execution ----------
 
-# Pick next task (first non-comment, non-blank line)
-TASK_LINE=$(grep -nv '^\s*\(#\|$\)' "$QUEUE" | head -1 || true)
-if [ -z "$TASK_LINE" ]; then
-    log "queue empty"
-    # Notify Lucas — once per 12h max so we don't spam
-    NOTIFY_STAMP="$ROOT/state/last-empty-notify"
-    NOW=$(date +%s)
-    LAST=$(cat "$NOTIFY_STAMP" 2>/dev/null || echo 0)
-    if [ $((NOW - LAST)) -gt 43200 ]; then
-        "$ROOT/bin/notify.sh" default "Claude queue empty" "Add tasks to /home/projects/claude-autonomous/tasks/queue.txt or runner sits idle." "https://github.com/Lucasldab/claude-autonomous/blob/main/tasks/queue.txt" || true
-        echo "$NOW" > "$NOTIFY_STAMP"
+run_one_task() {
+    local task_line line_no task project_part prompt_part project_dir project_name
+    local run_id run_log start_ts rc elapsed tokens pr_url branch state_file resume_hint full_prompt summary_file
+
+    task_line=$(grep -nv '^\s*\(#\|$\)' "$QUEUE" | head -1 || true)
+    [ -z "$task_line" ] && return 1
+
+    line_no="${task_line%%:*}"
+    task="${task_line#*:}"
+    project_part="${task%%|*}"
+    prompt_part="${task#*|}"
+
+    case "$project_part" in
+        /*) project_dir="$project_part" ;;
+        *)  project_dir="/home/projects/$project_part" ;;
+    esac
+
+    if [ ! -d "$project_dir" ]; then
+        log "project missing: $project_dir — moving to failed"
+        printf '%s\t%s\tproject-missing\n' "$(date -u +%FT%TZ)" "$task" >> "$FAILED_LOG"
+        sed -i "${line_no}d" "$QUEUE"
+        return 0
     fi
-    exit 0
-fi
 
-LINE_NO="${TASK_LINE%%:*}"
-TASK="${TASK_LINE#*:}"
-PROJECT_PART="${TASK%%|*}"
-PROMPT_PART="${TASK#*|}"
+    project_name=$(basename "$project_dir")
+    run_id="$(date -u +%Y%m%d-%H%M%S)-$project_name"
+    run_log="$LOG_DIR/$run_id.log"
 
-# Resolve project dir
-case "$PROJECT_PART" in
-    /*) PROJECT_DIR="$PROJECT_PART" ;;
-    *)  PROJECT_DIR="/home/projects/$PROJECT_PART" ;;
-esac
+    log "starting: $project_name — $prompt_part"
+    "$ROOT/bin/notify.sh" low "Run starting: $project_name" "$prompt_part" || true
 
-if [ ! -d "$PROJECT_DIR" ]; then
-    log "project missing: $PROJECT_DIR — moving to failed"
-    printf '%s\t%s\tproject-missing\n' "$(date -u +%FT%TZ)" "$TASK" >> "$FAILED"
-    sed -i "${LINE_NO}d" "$QUEUE"
-    exit 1
-fi
+    cd "$project_dir"
 
-PROJECT_NAME=$(basename "$PROJECT_DIR")
-RUN_ID="$(date -u +%Y%m%d-%H%M%S)-$PROJECT_NAME"
-RUN_LOG="$LOG_DIR/$RUN_ID.log"
-
-log "starting: $PROJECT_NAME — $PROMPT_PART"
-log "log: $RUN_LOG"
-
-cd "$PROJECT_DIR"
-
-# Force feature branch if policy demands
-if [ "$BRANCH_POLICY" = "feature-only" ] && git rev-parse --git-dir >/dev/null 2>&1; then
-    CUR=$(git rev-parse --abbrev-ref HEAD)
-    if [ "$CUR" = "main" ] || [ "$CUR" = "master" ]; then
-        BR="autonomous/$(date +%Y%m%d-%H%M%S)"
-        git checkout -b "$BR" -q
-        log "switched to feature branch: $BR"
+    if [ "$BRANCH_POLICY" = "feature-only" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+        local cur
+        cur=$(git rev-parse --abbrev-ref HEAD)
+        if [ "$cur" = "main" ] || [ "$cur" = "master" ]; then
+            local br="autonomous/$(date +%Y%m%d-%H%M%S)"
+            git checkout -b "$br" -q
+            log "switched to feature branch: $br"
+        fi
     fi
-fi
 
-# Resume hint if state file exists
-STATE_FILE="$ROOT/state/${PROJECT_NAME}.md"
-RESUME_HINT=""
-if [ -f "$STATE_FILE" ]; then
-    RESUME_HINT=$'\n\nPrior session state (resume from here):\n'"$(cat "$STATE_FILE")"
-fi
+    state_file="$ROOT/state/${project_name}.md"
+    resume_hint=""
+    [ -f "$state_file" ] && resume_hint=$'\n\nPrior session state (resume from here):\n'"$(cat "$state_file")"
 
-FULL_PROMPT="You are running fully autonomously without a human. Follow the auto-checkpoint skill rules.
+    full_prompt="You are running fully autonomously without a human. Follow the auto-checkpoint skill rules.
 
-Task: $PROMPT_PART
+Task: $prompt_part
 
-Project: $PROJECT_DIR
-Run ID: $RUN_ID
+Project: $project_dir
+Run ID: $run_id
 Hard rules:
 - Branch policy: $BRANCH_POLICY (you are NOT on main; do not switch to main)
 - Push allowed: $ALLOW_PUSH
 - PR allowed: $ALLOW_PR
 - Max turns: $MAX_TURNS
-- When you sense limits closing in (context >75%, long wall-clock, repeated failures), invoke the auto-checkpoint skill, write resume notes to $STATE_FILE, commit, and exit cleanly.
+- When you sense limits closing in (context >75%, long wall-clock, repeated failures), invoke the auto-checkpoint skill, write resume notes to $state_file, commit, and exit cleanly.
 - Do not read .env / secrets / credentials. Use placeholder values and document what env vars are needed.
-- Use the spc command to create a new GitHub repo if the task requires one.$RESUME_HINT"
+- Use the spc command to create a new GitHub repo if the task requires one.$resume_hint"
 
-START_TS=$(date +%s)
+    start_ts=$(date +%s)
 
-# Run claude headless. timeout caps wall-clock as a safety net.
-set +e
-timeout "$MAX_SESSION_SECONDS" claude \
-    --print \
-    --dangerously-skip-permissions \
-    --max-turns "$MAX_TURNS" \
-    --model "$CLAUDE_MODEL" \
-    --output-format json \
-    "$FULL_PROMPT" \
-    > "$RUN_LOG" 2>&1
-RC=$?
-set -e
+    set +e
+    timeout "$MAX_SESSION_SECONDS" claude \
+        --print \
+        --dangerously-skip-permissions \
+        --max-turns "$MAX_TURNS" \
+        --model "$CLAUDE_MODEL" \
+        --output-format json \
+        "$full_prompt" \
+        > "$run_log" 2>&1
+    rc=$?
+    set -e
 
-ELAPSED=$(( $(date +%s) - START_TS ))
-log "claude exited rc=$RC elapsed=${ELAPSED}s"
+    elapsed=$(( $(date +%s) - start_ts ))
+    log "claude exited rc=$rc elapsed=${elapsed}s"
 
-# Extract token usage from JSON output if present
-if [ -f "$RUN_LOG" ]; then
-    TOKENS=$(jq -r '.usage.input_tokens + .usage.output_tokens // 0' "$RUN_LOG" 2>/dev/null || echo 0)
-    [ -n "$TOKENS" ] && [ "$TOKENS" != "0" ] && "$ROOT/bin/budget.sh" log "$TOKENS" >/dev/null 2>&1 || true
-fi
+    tokens=0
+    if [ -f "$run_log" ]; then
+        tokens=$(jq -r '(.usage.input_tokens // 0) + (.usage.output_tokens // 0)' "$run_log" 2>/dev/null || echo 0)
+        [ "$tokens" -gt 0 ] && "$ROOT/bin/budget.sh" log "$tokens" >/dev/null 2>&1 || true
+    fi
 
-# Final checkpoint
-"$ROOT/bin/checkpoint.sh" "$PROJECT_DIR" "runner-end-rc-$RC" || true
+    "$ROOT/bin/checkpoint.sh" "$project_dir" "runner-end-rc-$rc" || true
 
-# Push + PR if enabled and on a feature branch
-if [ "$ALLOW_PUSH" = "1" ] && git rev-parse --git-dir >/dev/null 2>&1; then
-    BR=$(git rev-parse --abbrev-ref HEAD)
-    if [ "$BR" != "main" ] && [ "$BR" != "master" ]; then
-        if git push -u origin "$BR" 2>>"$RUN_LOG"; then
-            log "pushed: $BR"
-            if [ "$ALLOW_PR" = "1" ] && [ "$RC" = "0" ]; then
-                gh pr create --fill --draft 2>>"$RUN_LOG" || log "pr create skipped/failed"
+    branch=""
+    if [ "$ALLOW_PUSH" = "1" ] && git rev-parse --git-dir >/dev/null 2>&1; then
+        branch=$(git rev-parse --abbrev-ref HEAD)
+        if [ "$branch" != "main" ] && [ "$branch" != "master" ]; then
+            if git push -u origin "$branch" 2>>"$run_log"; then
+                log "pushed: $branch"
+                if [ "$ALLOW_PR" = "1" ] && [ "$rc" = "0" ]; then
+                    gh pr create --fill --draft 2>>"$run_log" || log "pr create skipped/failed"
+                fi
             fi
         fi
     fi
-fi
 
-# Move task off queue
-if [ "$RC" = "0" ]; then
-    printf '%s\t%s\trc=0\trun=%s\n' "$(date -u +%FT%TZ)" "$TASK" "$RUN_ID" >> "$DONE"
-else
-    printf '%s\t%s\trc=%s\trun=%s\n' "$(date -u +%FT%TZ)" "$TASK" "$RC" "$RUN_ID" >> "$FAILED"
-fi
-sed -i "${LINE_NO}d" "$QUEUE"
+    if [ "$rc" = "0" ]; then
+        printf '%s\t%s\trc=0\trun=%s\n' "$(date -u +%FT%TZ)" "$task" "$run_id" >> "$DONE_LOG"
+    else
+        printf '%s\t%s\trc=%s\trun=%s\n' "$(date -u +%FT%TZ)" "$task" "$rc" "$run_id" >> "$FAILED_LOG"
+    fi
+    sed -i "${line_no}d" "$QUEUE"
 
-log "done: $PROJECT_NAME rc=$RC"
+    pr_url=$(grep -oE 'https://github.com/[^ ]*pull/[0-9]+' "$run_log" 2>/dev/null | head -1 || true)
+    if [ "$rc" = "0" ] && [ -n "$pr_url" ]; then
+        "$ROOT/bin/notify.sh" default "PR ready: $project_name" "${elapsed}s, ~${tokens} tokens." "$pr_url" || true
+    elif [ "$rc" = "0" ]; then
+        "$ROOT/bin/notify.sh" low "Run done: $project_name" "rc=0, no PR opened. ${elapsed}s." || true
+    elif [ "$rc" = "124" ] || [ "$elapsed" -ge "$MAX_SESSION_SECONDS" ]; then
+        "$ROOT/bin/notify.sh" high "Run TIMEOUT: $project_name" "Hit ${MAX_SESSION_SECONDS}s cap. Check logs." || true
+    else
+        "$ROOT/bin/notify.sh" high "Run FAILED: $project_name" "rc=$rc, ${elapsed}s. May need your input." || true
+    fi
 
-# Self-loop: if queue still has work AND we're still in the away-hours window
-# AND the budget gate still passes, run the next task immediately. flock holds
-# the lock for the whole loop so timer firings are no-ops while we're busy.
-SELF_LOOP_GUARD="${SELF_LOOP_GUARD:-0}"
-if [ "$SELF_LOOP_GUARD" -lt 20 ] && grep -qv '^\s*\(#\|$\)' "$QUEUE" 2>/dev/null; then
-    H=$(date +%H | sed 's/^0//')
-    in_window=1
-    if [ "${FORCE:-0}" != "1" ] && [ "$AWAY_HOUR_START" != "$AWAY_HOUR_END" ]; then
-        if [ "$AWAY_HOUR_START" -lt "$AWAY_HOUR_END" ]; then
-            [ "$H" -ge "$AWAY_HOUR_START" ] && [ "$H" -lt "$AWAY_HOUR_END" ] || in_window=0
-        else
-            [ "$H" -ge "$AWAY_HOUR_START" ] || [ "$H" -lt "$AWAY_HOUR_END" ] || in_window=0
+    summary_file="$ROOT/runs/$run_id.md"
+    {
+        echo "# Run $run_id"
+        echo
+        echo "- Project: \`$project_dir\`"
+        echo "- Task: $prompt_part"
+        echo "- Exit code: $rc"
+        echo "- Elapsed: ${elapsed}s (cap ${MAX_SESSION_SECONDS}s)"
+        echo "- Tokens (estimated): $tokens"
+        echo "- Branch at end: $(cd "$project_dir" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo n/a)"
+        echo "- HEAD: $(cd "$project_dir" && git rev-parse --short HEAD 2>/dev/null || echo n/a)"
+        echo "- PR: ${pr_url:-none}"
+        echo "- Hit timeout: $([ "$elapsed" -ge "$MAX_SESSION_SECONDS" ] && echo yes || echo no)"
+        echo "- Stop reason hint (last 5 log lines):"
+        echo
+        echo '```'
+        tail -5 "$run_log" 2>/dev/null | sed 's/^/  /'
+        echo '```'
+    } > "$summary_file"
+
+    (
+        cd "$ROOT"
+        git add "runs/$run_id.md" "state/${project_name}.md" "tasks/queue.txt" "tasks/done.log" "tasks/failed.log" "state/budget.log" 2>/dev/null || true
+        if ! git diff --cached --quiet 2>/dev/null; then
+            git commit -q -m "run: $run_id rc=$rc ($project_name)" 2>/dev/null || true
+            git push -q 2>/dev/null || true
         fi
-    fi
-    if [ "$in_window" = "1" ] && "$ROOT/bin/budget.sh" check "$WEEKLY_TOKEN_CAP_M" >/dev/null; then
-        log "self-loop: queue has work and window open — chaining next task"
-        export SELF_LOOP_GUARD=$((SELF_LOOP_GUARD + 1))
-        # Re-exec, releasing flock first so the new instance can acquire it
-        flock -u 9
-        exec "$0"
-    fi
-fi
+    ) || true
 
-# Notify on completion. Failures + draft PRs both warrant a phone ping.
-PR_URL=$(grep -oE 'https://github.com/[^ ]*pull/[0-9]+' "$RUN_LOG" 2>/dev/null | head -1 || true)
-if [ "$RC" = "0" ] && [ -n "$PR_URL" ]; then
-    "$ROOT/bin/notify.sh" default "PR ready: $PROJECT_NAME" "Draft PR opened. ${ELAPSED}s, ~${TOKENS:-?} tokens." "$PR_URL" || true
-elif [ "$RC" = "0" ]; then
-    "$ROOT/bin/notify.sh" low "Run done: $PROJECT_NAME" "rc=0, no PR opened. ${ELAPSED}s." || true
-elif [ "$RC" = "124" ] || [ "$ELAPSED" -ge "$MAX_SESSION_SECONDS" ]; then
-    "$ROOT/bin/notify.sh" high "Run TIMEOUT: $PROJECT_NAME" "Hit ${MAX_SESSION_SECONDS}s cap. Check logs." || true
-else
-    "$ROOT/bin/notify.sh" high "Run FAILED: $PROJECT_NAME" "rc=$RC, ${ELAPSED}s. May need your input." || true
-fi
+    log "done: $project_name rc=$rc"
+    return 0
+}
 
-# Publish per-run summary to the claude-autonomous repo so remote auditors can see it
-SUMMARY_DIR="$ROOT/runs"
-mkdir -p "$SUMMARY_DIR"
-SUMMARY_FILE="$SUMMARY_DIR/$RUN_ID.md"
-{
-    echo "# Run $RUN_ID"
-    echo
-    echo "- Project: \`$PROJECT_DIR\`"
-    echo "- Task: $PROMPT_PART"
-    echo "- Exit code: $RC"
-    echo "- Elapsed: ${ELAPSED}s (cap ${MAX_SESSION_SECONDS}s)"
-    echo "- Tokens (estimated): ${TOKENS:-unknown}"
-    echo "- Branch at end: $(cd "$PROJECT_DIR" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo n/a)"
-    echo "- HEAD: $(cd "$PROJECT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo n/a)"
-    echo "- Remote pushed: $(grep -q "pushed:" "$RUN_LOG" 2>/dev/null && echo yes || echo no)"
-    echo "- Hit timeout: $([ "$ELAPSED" -ge "$MAX_SESSION_SECONDS" ] && echo yes || echo no)"
-    echo "- Stop reason hint (last 5 log lines):"
-    echo
-    echo '```'
-    tail -5 "$RUN_LOG" 2>/dev/null | sed 's/^/  /'
-    echo '```'
-} > "$SUMMARY_FILE"
+# ---------- main loop ----------
 
-# Commit and push the summary + state file (best-effort, non-blocking)
-(
-    cd "$ROOT"
-    git add "runs/$RUN_ID.md" "state/${PROJECT_NAME}.md" 2>/dev/null || true
-    if ! git diff --cached --quiet 2>/dev/null; then
-        git commit -q -m "run: $RUN_ID rc=$RC ($PROJECT_NAME)" 2>/dev/null || true
-        git push -q 2>/dev/null || true
+log "daemon started (pid $$)"
+trap 'log "daemon exiting"; exit 0' TERM INT
+
+EMPTY_NOTIFIED=0  # only ping once per "queue went from non-empty to empty"
+
+while true; do
+    if ! in_away_window; then
+        sleep "$(sleep_duration)"
+        continue
     fi
-) || true
+
+    if ! budget_ok; then
+        # Budget gate — sleep and retry; budget rolls forward in time.
+        sleep "$(sleep_duration)"
+        continue
+    fi
+
+    if ! queue_has_work; then
+        if [ "$EMPTY_NOTIFIED" = "0" ]; then
+            "$ROOT/bin/notify.sh" default "Claude queue empty" "Add tasks to /home/projects/claude-autonomous/tasks/queue.txt or runner sits idle." "https://github.com/Lucasldab/claude-autonomous/blob/main/tasks/queue.txt" || true
+            EMPTY_NOTIFIED=1
+        fi
+        sleep "$(sleep_duration)"
+        continue
+    fi
+
+    EMPTY_NOTIFIED=0
+    run_one_task || true
+    # Small breather between tasks
+    sleep 5
+done
