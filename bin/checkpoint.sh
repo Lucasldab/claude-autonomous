@@ -50,17 +50,15 @@ fi
 if git rev-parse --git-dir >/dev/null 2>&1; then
     BRANCH=$(git rev-parse --abbrev-ref HEAD)
     if [ "$BRANCH" = "main" ] || [ "$BRANCH" = "master" ]; then
-        # Refuse to commit on main during autonomous run — switch to wip branch
-        WIP_BRANCH="autonomous/wip-$(date +%Y%m%d-%H%M)"
+        WIP_BRANCH="wip/$(date +%Y%m%d-%H%M)"
         git checkout -b "$WIP_BRANCH" 2>/dev/null || true
         BRANCH="$WIP_BRANCH"
     fi
 
     if [ -n "$(git status --porcelain)" ]; then
         git add -A
-        git commit -q -m "wip: autonomous checkpoint ($REASON)
+        git commit -q -m "wip: checkpoint
 
-Session: $SESSION_ID
 Branch: $BRANCH
 Time: $TS" || true
     fi
