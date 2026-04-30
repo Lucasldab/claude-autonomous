@@ -7,7 +7,6 @@
 # - Open a draft PR; do not merge
 # - If you cannot proceed without making destructive changes, write a state note explaining and exit cleanly
 
-icloud-tools|Audit lsb_crypt.py (two-factor PNG-LSB + password encryption). Write SECURITY-NOTES.md: any crypto smells (constant-time compare, IV reuse, password→key derivation choice, error-message leaks), severity per finding, no fixes — just findings. Open draft PR with SECURITY-NOTES.md.
 icloud-migrate|Read README and any scripts. Memory says: photos pulling, docs encrypted at ~/backup/, notes manual; pending Syncthing + photo triage. Write STATUS.md: what's done, what's pending (with concrete next step for each), what cannot proceed without Lucas. Open draft PR with STATUS.md.
 crypt-files|Audit for crypto correctness. Same shape as icloud-tools task: SECURITY-NOTES.md with findings only. Open draft PR.
 mrm|Rust TUI manhwa manager. Read crates/, scraper/, Cargo.toml. Write SCAN.md at repo root listing: (a) modules and their responsibilities, (b) any TODO/FIXME comments with file:line, (c) one risky area (scraper rate-limiting? notification backoff? state file corruption on crash?) with suggested test. Open draft PR with SCAN.md only.
