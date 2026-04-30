@@ -7,7 +7,6 @@
 # - Open a draft PR; do not merge
 # - If you cannot proceed without making destructive changes, write a state note explaining and exit cleanly
 
-protONsteam|Browser extension showing ProtonDB ratings on Steam pages. Read content.js, background.js, manifest.json. Write SCAN.md: (a) message-passing surface and CSP impact, (b) any innerHTML/textContent injection risk on Steam-controlled DOM with file:line, (c) one concrete XSS-defense test. Open draft PR with SCAN.md only.
 rhonetyping|Rust project with no README. Read Cargo.toml and src/. Write README.md (concise: what it is, how to build, how to run) AND PLANNING.md (current state assessment + next obvious milestone). Two files, one PR.
 local-u-llm|Python scripts for local Ollama. Read chat.py, model-test.py, searching.py, Modelfile. Write README.md (what each script does, how to run, model assumed) AND IMPROVEMENTS.md (top 3 quality-of-life additions ranked by effort/impact). Two files, one PR.
 rfinances|Rust personal finance tool. Read src/ and Cargo.toml. There is a file named '~' in repo root which is suspicious — investigate (is it accidentally created from `git stash` typo or `vim ~`?). Write SCAN.md: (a) what '~' contains and what to do with it (delete? gitignore? rename?), (b) modules + responsibilities, (c) one missing test. Do NOT delete '~' — only document. Open draft PR with SCAN.md.
