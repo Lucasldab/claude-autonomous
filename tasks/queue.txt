@@ -7,4 +7,3 @@
 # - Open a draft PR; do not merge
 # - If you cannot proceed without making destructive changes, write a state note explaining and exit cleanly
 
-nocturne|<project> check project nocturne branches, merge then as you see fit and release a new version if needed
