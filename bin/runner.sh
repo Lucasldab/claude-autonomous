@@ -91,11 +91,20 @@ run_one_task() {
         local cur
         cur=$(git rev-parse --abbrev-ref HEAD)
         if [ "$cur" = "main" ] || [ "$cur" = "master" ]; then
-            # Neutral branch name: feat/<short-slug>-<short-ts>. No "autonomous" prefix.
+            # Humanlike branch: feat/<3-4 keywords>. Strip stopwords, no timestamp.
             local slug
-            slug=$(printf '%s' "$prompt_part" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//' | cut -c1-40)
-            [ -z "$slug" ] && slug="task"
-            local br="feat/${slug}-$(date +%H%M%S)"
+            slug=$(printf '%s' "$prompt_part" | tr 'A-Z' 'a-z' \
+                | sed -E 's/\b(the|a|an|and|or|to|for|of|in|on|with|that|this|is|are|be|was|were|will|would|should|could|do|does|did|have|has|had|me|i|my|you|your|fix|add|update|review|read|write|open|draft|pr)\b/ /g' \
+                | tr -c 'a-z0-9' '-' \
+                | sed 's/--*/-/g; s/^-*//; s/-*$//' \
+                | cut -d'-' -f1-4 \
+                | cut -c1-30 \
+                | sed 's/-*$//')
+            [ -z "$slug" ] && slug="work"
+            local br="feat/$slug"
+            if git show-ref --quiet "refs/heads/$br" || git ls-remote --exit-code --heads origin "$br" >/dev/null 2>&1; then
+                br="$br-$(date +%H%M)"
+            fi
             git checkout -b "$br" -q
             log "switched to feature branch: $br"
         fi
