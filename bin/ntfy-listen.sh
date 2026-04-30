@@ -26,39 +26,49 @@ handle_qa() {
     log "Q&A: $question"
     ack "Q&A received" "${question:0:120}"
 
-    # Inject context so questions like "how many tasks" or "what's in the queue" actually work.
-    local queue_count done_count failed_count current_task active_branch
+    # Inject ALL relevant state into the prompt directly — no file reading needed.
+    # This keeps Q&A to a single turn and avoids burning the budget on exploration.
+    local queue_count done_count failed_count current_task active_state
+    local queue_contents recent_done recent_pr
     queue_count=$(grep -cv '^\s*\(#\|$\)' "$ROOT/tasks/queue.txt" 2>/dev/null || echo 0)
     done_count=$(wc -l < "$ROOT/tasks/done.log" 2>/dev/null || echo 0)
     failed_count=$(wc -l < "$ROOT/tasks/failed.log" 2>/dev/null || echo 0)
-    current_task=$(grep -v '^\s*\(#\|$\)' "$ROOT/tasks/queue.txt" 2>/dev/null | head -1 | cut -d'|' -f1)
-    active_branch=$(systemctl --user is-active claude-autonomous.service 2>/dev/null)
+    current_task=$(grep -v '^\s*\(#\|$\)' "$ROOT/tasks/queue.txt" 2>/dev/null | head -1)
+    active_state=$(systemctl --user is-active claude-autonomous.service 2>/dev/null)
+    queue_contents=$(grep -v '^\s*\(#\|$\)' "$ROOT/tasks/queue.txt" 2>/dev/null | nl -ba | head -30)
+    recent_done=$(tail -5 "$ROOT/tasks/done.log" 2>/dev/null | cut -f1-2)
+    recent_pr=$(ls -t "$ROOT/runs/"*.md 2>/dev/null | head -3 | xargs -I{} grep -h "^- PR:" {} 2>/dev/null | head -3)
 
     local context
-    context="You are answering Lucas's question over ntfy push notification. Reply in <=3500 chars, plain text, no markdown headers. Be terse — fragments OK. Caveman style if it saves chars.
+    context="You are answering Lucas over phone push notification. Reply must be <=3500 chars, plain text, no markdown headers. Be terse. Caveman ok. Single turn — do NOT read files; everything you need is below.
 
-Live system snapshot:
-- Autonomous daemon: $active_branch
-- Queue: $queue_count tasks remaining
-- Completed: $done_count, Failed: $failed_count
-- Currently running: ${current_task:-idle}
-- Queue file: $ROOT/tasks/queue.txt
-- Done log: $ROOT/tasks/done.log
-- Repo: /home/projects/claude-autonomous (github.com/Lucasldab/claude-autonomous)
-- Other projects live under /home/projects/
+=== Live snapshot ===
+Daemon: $active_state
+Queue: $queue_count tasks remaining
+Completed: $done_count, Failed: $failed_count
+Currently running: ${current_task:-idle}
 
-If the question asks about queue/tasks/runs/state, read the files above. Otherwise answer normally.
+=== Queue contents (project|prompt) ===
+$queue_contents
 
-Question: $question"
+=== Recent done ===
+$recent_done
+
+=== Recent PRs ===
+$recent_pr
+
+=== Question ===
+$question
+
+Reply now in 1 turn. Do not read files."
 
     local answer rc
-    answer=$(timeout 180 claude \
+    answer=$(timeout 90 claude \
         --print \
         --dangerously-skip-permissions \
-        --max-turns "${QA_MAX_TURNS:-5}" \
+        --max-turns 1 \
         --model "$CLAUDE_MODEL" \
         --output-format text \
-        --add-dir "$ROOT" \
         "$context" </dev/null 2>&1)
     rc=$?
 
