@@ -28,6 +28,13 @@ fi
 [ -z "$PROJECT_DIR" ] && PROJECT_DIR="$PWD"
 cd "$PROJECT_DIR" || exit 0
 
+# Skip if this IS the claude-autonomous orchestration repo itself —
+# Stop hooks fire whenever Lucas works in this repo from any session,
+# and checkpointing here just creates noise and switches branches.
+case "$PROJECT_DIR" in
+    "$ROOT"|"$ROOT"/*) exit 0 ;;
+esac
+
 PROJECT_NAME=$(basename "$PROJECT_DIR")
 STATE_FILE="$STATE_DIR/${PROJECT_NAME}.md"
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
