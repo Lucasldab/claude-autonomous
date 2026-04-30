@@ -50,6 +50,14 @@ fi
 TASK_LINE=$(grep -nv '^\s*\(#\|$\)' "$QUEUE" | head -1 || true)
 if [ -z "$TASK_LINE" ]; then
     log "queue empty"
+    # Notify Lucas — once per 12h max so we don't spam
+    NOTIFY_STAMP="$ROOT/state/last-empty-notify"
+    NOW=$(date +%s)
+    LAST=$(cat "$NOTIFY_STAMP" 2>/dev/null || echo 0)
+    if [ $((NOW - LAST)) -gt 43200 ]; then
+        "$ROOT/bin/notify.sh" default "Claude queue empty" "Add tasks to /home/projects/claude-autonomous/tasks/queue.txt or runner sits idle." "https://github.com/Lucasldab/claude-autonomous/blob/main/tasks/queue.txt" || true
+        echo "$NOW" > "$NOTIFY_STAMP"
+    fi
     exit 0
 fi
 
@@ -161,6 +169,18 @@ fi
 sed -i "${LINE_NO}d" "$QUEUE"
 
 log "done: $PROJECT_NAME rc=$RC"
+
+# Notify on completion. Failures + draft PRs both warrant a phone ping.
+PR_URL=$(grep -oE 'https://github.com/[^ ]*pull/[0-9]+' "$RUN_LOG" 2>/dev/null | head -1 || true)
+if [ "$RC" = "0" ] && [ -n "$PR_URL" ]; then
+    "$ROOT/bin/notify.sh" default "PR ready: $PROJECT_NAME" "Draft PR opened. ${ELAPSED}s, ~${TOKENS:-?} tokens." "$PR_URL" || true
+elif [ "$RC" = "0" ]; then
+    "$ROOT/bin/notify.sh" low "Run done: $PROJECT_NAME" "rc=0, no PR opened. ${ELAPSED}s." || true
+elif [ "$RC" = "124" ] || [ "$ELAPSED" -ge "$MAX_SESSION_SECONDS" ]; then
+    "$ROOT/bin/notify.sh" high "Run TIMEOUT: $PROJECT_NAME" "Hit ${MAX_SESSION_SECONDS}s cap. Check logs." || true
+else
+    "$ROOT/bin/notify.sh" high "Run FAILED: $PROJECT_NAME" "rc=$RC, ${ELAPSED}s. May need your input." || true
+fi
 
 # Publish per-run summary to the claude-autonomous repo so remote auditors can see it
 SUMMARY_DIR="$ROOT/runs"
