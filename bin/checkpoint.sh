@@ -28,6 +28,13 @@ fi
 [ -z "$PROJECT_DIR" ] && PROJECT_DIR="$PWD"
 cd "$PROJECT_DIR" || exit 0
 
+# Skip if this IS the claude-autonomous orchestration repo itself —
+# Stop hooks fire whenever Lucas works in this repo from any session,
+# and checkpointing here just creates noise and switches branches.
+case "$PROJECT_DIR" in
+    "$ROOT"|"$ROOT"/*) exit 0 ;;
+esac
+
 PROJECT_NAME=$(basename "$PROJECT_DIR")
 STATE_FILE="$STATE_DIR/${PROJECT_NAME}.md"
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -43,17 +50,15 @@ fi
 if git rev-parse --git-dir >/dev/null 2>&1; then
     BRANCH=$(git rev-parse --abbrev-ref HEAD)
     if [ "$BRANCH" = "main" ] || [ "$BRANCH" = "master" ]; then
-        # Refuse to commit on main during autonomous run — switch to wip branch
-        WIP_BRANCH="autonomous/wip-$(date +%Y%m%d-%H%M)"
+        WIP_BRANCH="wip/$(date +%Y%m%d-%H%M)"
         git checkout -b "$WIP_BRANCH" 2>/dev/null || true
         BRANCH="$WIP_BRANCH"
     fi
 
     if [ -n "$(git status --porcelain)" ]; then
         git add -A
-        git commit -q -m "wip: autonomous checkpoint ($REASON)
+        git commit -q -m "wip: checkpoint
 
-Session: $SESSION_ID
 Branch: $BRANCH
 Time: $TS" || true
     fi
