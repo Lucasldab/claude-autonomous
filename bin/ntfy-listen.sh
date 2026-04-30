@@ -87,16 +87,31 @@ Reply now in 1 turn. Do not read files."
 
 handle_task() {
     local task="$1"
-    # Append to queue (after the comment block, but simplest = append at end)
     printf '%s\n' "$task" >> "$ROOT/tasks/queue.txt"
     log "queued: $task"
     ack "Task queued" "${task:0:120}"
 
-    # Best-effort commit + push so remote auditor and runner see it
     (
         cd "$ROOT"
         git add tasks/queue.txt 2>/dev/null && \
         git commit -q -m "queue: phone-added task" 2>/dev/null && \
+        git push -q 2>/dev/null
+    ) || true
+}
+
+handle_directive() {
+    local text="$1"
+    local fname
+    fname="$ROOT/directives/$(date -u +%Y%m%d-%H%M%S).md"
+    mkdir -p "$ROOT/directives"
+    printf '# Directive (added %s via phone)\n\n%s\n' "$(date -u +%FT%TZ)" "$text" > "$fname"
+    log "directive saved: $fname"
+    ack "Directive saved" "Will inject into all future task prompts: ${text:0:100}"
+
+    (
+        cd "$ROOT"
+        git add "$fname" 2>/dev/null && \
+        git commit -q -m "directive: phone-added" 2>/dev/null && \
         git push -q 2>/dev/null
     ) || true
 }
@@ -112,7 +127,7 @@ route() {
         'q:'*|'Q:'*)    handle_qa "${msg#*:}" ;;
         '?'*)           handle_qa "${msg#?}" ;;
         *'|'*)          handle_task "$msg" ;;
-        *)              handle_task "?|$msg" ;;
+        *)              handle_directive "$msg" ;;
     esac
 }
 

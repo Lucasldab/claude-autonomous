@@ -1,0 +1,9 @@
+<<<<<<< Updated upstream
+=======
+2026-04-30T07:22:55Z	enderite|Add enderite world generation. Configured features + placed features for END_ENDERITE_ORE (End outer islands, rare). Optional: small chance in End city loot tables. Datapack JSON under data/enderite/worldgen/. Verify gradle build passes. Open draft PR titled 'feat: enderite worldgen + loot integration'.	rc=1	run=20260430-070227-enderite
+2026-04-30T07:23:00Z	?|PR's are coming from something called autonomous, if that will be exposed. Correct that, if not ignore it.	project-missing
+2026-04-30T07:23:05Z	There can't be any signs of AI on public repos	project-missing
+2026-04-30T07:23:10Z	?|always act like me: Lucas.	project-missing
+2026-04-30T07:23:15Z	?|triggered	project-missing
+2026-04-30T07:23:20Z	?|Remember to send me a message before stop working	project-missing
+>>>>>>> Stashed changes

@@ -7,6 +7,7 @@
 # - Open a draft PR; do not merge
 # - If you cannot proceed without making destructive changes, write a state note explaining and exit cleanly
 
+<<<<<<< Updated upstream
 protONsteam|Browser extension showing ProtonDB ratings on Steam pages. Read content.js, background.js, manifest.json. Write SCAN.md: (a) message-passing surface and CSP impact, (b) any innerHTML/textContent injection risk on Steam-controlled DOM with file:line, (c) one concrete XSS-defense test. Open draft PR with SCAN.md only.
 rhonetyping|Rust project with no README. Read Cargo.toml and src/. Write README.md (concise: what it is, how to build, how to run) AND PLANNING.md (current state assessment + next obvious milestone). Two files, one PR.
 local-u-llm|Python scripts for local Ollama. Read chat.py, model-test.py, searching.py, Modelfile. Write README.md (what each script does, how to run, model assumed) AND IMPROVEMENTS.md (top 3 quality-of-life additions ranked by effort/impact). Two files, one PR.
@@ -17,3 +18,5 @@ enderite|Add the enderite material chain (depends on the scaffold PR being merge
 enderite|Add enderite tools (sword, pickaxe, axe, shovel, hoe). Stats: every numeric > netherite — durability, attack damage, mining speed; mining level = netherite (or higher if MC version uses tags). Smithing recipe: netherite_X + ENDERITE_INGOT + ENDERITE_UPGRADE_SMITHING_TEMPLATE → enderite_X. Recipes JSON, lang entries, item models pointing to texture paths under assets/enderite/textures/item/ — DO NOT generate or commit any PNGs. Instead append a TEXTURES.md at repo root listing every texture path the mod expects (e.g., assets/enderite/textures/item/enderite_sword.png) so Lucas (or another contributor) can drop in art later. Minecraft will render the missing-texture pink/black checker until art is supplied — that is the intended placeholder. Open draft PR titled 'feat: enderite tools'.
 enderite|Add enderite armor (helmet, chestplate, leggings, boots). Stats: armor + toughness + knockback resist > netherite. Smithing recipes from netherite_armor. Equipment slot tags. Lang entries. DO NOT generate or commit any PNGs (item textures or armor layer textures). Append the missing texture paths to TEXTURES.md from the previous PR. Minecraft's missing-texture fallback is acceptable. Open draft PR titled 'feat: enderite armor'.
 enderite|Add enderite world generation. Configured features + placed features for END_ENDERITE_ORE (End outer islands, rare). Optional: small chance in End city loot tables. Datapack JSON under data/enderite/worldgen/. Verify gradle build passes. Open draft PR titled 'feat: enderite worldgen + loot integration'.
+=======
+>>>>>>> Stashed changes

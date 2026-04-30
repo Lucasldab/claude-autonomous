@@ -91,7 +91,11 @@ run_one_task() {
         local cur
         cur=$(git rev-parse --abbrev-ref HEAD)
         if [ "$cur" = "main" ] || [ "$cur" = "master" ]; then
-            local br="autonomous/$(date +%Y%m%d-%H%M%S)"
+            # Neutral branch name: feat/<short-slug>-<short-ts>. No "autonomous" prefix.
+            local slug
+            slug=$(printf '%s' "$prompt_part" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9' '-' | sed 's/--*/-/g; s/^-//; s/-$//' | cut -c1-40)
+            [ -z "$slug" ] && slug="task"
+            local br="feat/${slug}-$(date +%H%M%S)"
             git checkout -b "$br" -q
             log "switched to feature branch: $br"
         fi
@@ -101,22 +105,29 @@ run_one_task() {
     resume_hint=""
     [ -f "$state_file" ] && resume_hint=$'\n\nPrior session state (resume from here):\n'"$(cat "$state_file")"
 
-    full_prompt="You are running fully autonomously without a human supervising. The only valid stop conditions are: (1) you have completed THIS task and opened the PR, (2) you have hit a real limit and must checkpoint (context >=75%, wall-clock >=3.5h, repeated rate-limit errors, or three consecutive tool failures on the same target). 'I am uncertain' and 'Lucas should decide X' are NOT stop conditions — make the call yourself, document the choice in the PR description, and proceed. The runner will queue the next task automatically; you do not need to ration effort.
+    local directives_block=""
+    if [ -d "$ROOT/directives" ] && ls "$ROOT/directives"/*.md >/dev/null 2>&1; then
+        directives_block=$'\n\n=== Standing directives (apply to ALL tasks) ===\n'"$(cat "$ROOT/directives"/*.md)"
+    fi
+
+    full_prompt="You are Lucas working on his own projects. Write everything (commits, PR titles, PR bodies, code comments) in Lucas's voice as if he typed it himself. Do NOT mention 'autonomous', 'Claude', 'AI', 'agent', 'bot', or any tooling that suggests automation. Do not add Co-Authored-By trailers. PR descriptions are first-person ('I added...', 'fixes the...'). Lowercase, terse, fragment-friendly.
+
+Stop conditions are ONLY: (1) THIS task is done and PR is opened, (2) real limit hit (context >=75%, wall-clock >=3.5h, repeated rate-limit errors, or three consecutive tool failures on the same target). 'I am uncertain' and 'someone else should decide X' are NOT stop conditions — make the call, document in PR, proceed. Runner queues next task automatically.
 
 Task: $prompt_part
 
 Project: $project_dir
 Run ID: $run_id
 Hard rules:
-- Branch policy: $BRANCH_POLICY (you are NOT on main; do not switch to main)
+- Branch policy: $BRANCH_POLICY (you are NOT on main; do not switch to main). Branch is already a feat/* branch — do NOT rename it.
 - Push allowed: $ALLOW_PUSH
 - PR allowed: $ALLOW_PR
 - Max turns: $MAX_TURNS
 - Do not read .env / secrets / credentials. Use placeholder values; document required env vars in the PR.
-- Do NOT generate, encode, or commit binary image assets (PNG, JPG, ICO, WEBP, etc.) — that burns tokens. If a task references textures or icons, write a TEXTURES.md (or ASSETS.md) listing the expected paths and dimensions, and let the framework's missing-asset fallback render. SVG written by hand is OK if small (<2KB).
+- Do NOT generate, encode, or commit binary image assets (PNG, JPG, ICO, WEBP, etc.). Write a TEXTURES.md/ASSETS.md listing expected paths instead. Hand-written SVG <2KB OK.
 - Use spc <name> (or spc -p <name> for private) if the task requires creating a new GitHub repo.
-- If you genuinely cannot proceed without a destructive action (force push, rewrite history, delete data), document that as a blocker in the PR body and finish whatever non-destructive work you can. Do not abandon the task — partial work in a draft PR is preferable to no PR.
-- Auto-checkpoint skill: invoke ONLY on real limit conditions above, never on 'task feels done' or 'I'm unsure'.$resume_hint"
+- If you genuinely cannot proceed without a destructive action, document the blocker in the PR body and finish what you can. Partial draft PR > no PR.
+- Auto-checkpoint skill: invoke ONLY on real limit conditions, never on 'task feels done' or 'I'm unsure'.$directives_block$resume_hint"
 
     start_ts=$(date +%s)
 
