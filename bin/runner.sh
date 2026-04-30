@@ -113,6 +113,7 @@ Hard rules:
 - PR allowed: $ALLOW_PR
 - Max turns: $MAX_TURNS
 - Do not read .env / secrets / credentials. Use placeholder values; document required env vars in the PR.
+- Do NOT generate, encode, or commit binary image assets (PNG, JPG, ICO, WEBP, etc.) — that burns tokens. If a task references textures or icons, write a TEXTURES.md (or ASSETS.md) listing the expected paths and dimensions, and let the framework's missing-asset fallback render. SVG written by hand is OK if small (<2KB).
 - Use spc <name> (or spc -p <name> for private) if the task requires creating a new GitHub repo.
 - If you genuinely cannot proceed without a destructive action (force push, rewrite history, delete data), document that as a blocker in the PR body and finish whatever non-destructive work you can. Do not abandon the task — partial work in a draft PR is preferable to no PR.
 - Auto-checkpoint skill: invoke ONLY on real limit conditions above, never on 'task feels done' or 'I'm unsure'.$resume_hint"
