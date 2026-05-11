@@ -178,9 +178,35 @@ bare text       -> save as directive (injected into all future task prompts)"
     "$ROOT/bin/notify.sh" default "!$cmd" "${body:0:3500}" >/dev/null 2>&1 || true
 }
 
+try_autoroute_task() {
+    local msg="$1"
+    local stripped="${msg#<task>}"
+    stripped="${stripped# }"
+    local lower
+    lower=$(printf ' %s ' "$stripped" | tr 'A-Z' 'a-z')
+    local match=""
+    for p in /home/projects/*/; do
+        local name
+        name=$(basename "$p")
+        case "$name" in
+            "lost+found"|"-p"|"tests"|"claude-autonomous") continue ;;
+        esac
+        local lname
+        lname=$(printf '%s' "$name" | tr 'A-Z' 'a-z')
+        if [[ "$lower" == *" $lname "* ]] || [[ "$lower" == *" $lname,"* ]] || [[ "$lower" == *" $lname."* ]] || [[ "$lower" == *" $lname'"* ]]; then
+            match="$name"
+            break
+        fi
+    done
+    if [ -n "$match" ]; then
+        handle_task "$match|$stripped"
+        return 0
+    fi
+    return 1
+}
+
 route() {
     local msg="$1"
-    # Trim trailing whitespace / trailing newline
     msg="${msg%$'\n'}"
     msg="${msg%"${msg##*[![:space:]]}"}"
     [ -z "$msg" ] && return
@@ -190,7 +216,8 @@ route() {
         'q:'*|'Q:'*)    handle_qa "${msg#*:}" ;;
         '?'*)           handle_qa "${msg#?}" ;;
         *'|'*)          handle_task "$msg" ;;
-        *)              handle_directive "$msg" ;;
+        '<task>'*)      try_autoroute_task "$msg" || ack "Task needs project" "couldn't detect project: ${msg:0:80}. Use <project>|<task>." ;;
+        *)              try_autoroute_task "$msg" || handle_directive "$msg" ;;
     esac
 }
 
